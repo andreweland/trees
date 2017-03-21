@@ -23,8 +23,8 @@ const (
   PlanningDescriptionColumn = 3
 
   TreesSpreadColumn = 4
-  TreesLatitudeColumn = 14
-  TreesLongditudeColumn = 15
+  TreesLatitudeColumn = 15
+  TreesLongditudeColumn = 14
 
   CamdenDistrictCode = "E09000007"
 )

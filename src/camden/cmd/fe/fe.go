@@ -30,46 +30,73 @@ func TileRegion(x, y, z uint64) s2.Region {
 
 var tilePattern = regexp.MustCompile(`/tile/(\d+)/(\d+)/(\d+)\.mvt`)
 
-func ServeTile(w http.ResponseWriter, r *http.Request) {
-  log.Printf("Tile: %s", r.URL.Path)
-  m := tilePattern.FindStringSubmatch(r.URL.Path)
-  if m == nil {
-    http.Error(w, "Bad tile path", http.StatusInternalServerError)
-    return
-  }
-  coordinates := [...]int{0, 0, 0}
-  for i := 0; i < 3; i++ {
-    var err error
-    coordinates[i], err = strconv.Atoi(m[i+1])
-    if err != nil {
-      http.Error(w, "Bad tile coordinates", http.StatusInternalServerError)
-      return
-    }
-  }
-  // Move cast earlier. Scanf not pattern?
-  x, y, z := uint64(coordinates[1]), uint64(coordinates[2]), uint64(coordinates[0])
-  region := TileRegion(z, x, y)
-  log.Printf("Region: %s", region)
-  tile := vector_tile.Tile{
+type TileHandler struct {
+  Trees []Tree
+}
+
+type Painter struct {
+  Tile *vector_tile.Tile
+  X, Y, Z uint64
+}
+
+func (p *Painter) Init(x, y, z uint64) {
+  p.X, p.Y, p.Z = x, y, z
+  p.Tile = &vector_tile.Tile{
     Layers: []*vector_tile.Tile_Layer{
       &vector_tile.Tile_Layer{
         Name: proto.String("b"),
         Version: proto.Uint32(1),
         Extent: proto.Uint32(4096),
-        Features: []*vector_tile.Tile_Feature{
-          &vector_tile.Tile_Feature{
-            Type: vector_tile.Tile_POINT.Enum(),
-            Geometry: []uint32{
-              (1 & 0x7) | (1 << 3), // MoveTo: id 1, count 1
-              (2048 << 1) ^ (2048 >> 31), // 2048, zigzag encoded
-              (2048 << 1) ^ (2048 >> 31),
-            },
-          },
-        },
+        Features: []*vector_tile.Tile_Feature{},
       },
     },
   }
-  data, err := proto.Marshal(&tile)
+}
+
+func (p *Painter) project(ll s2.LatLng) (x, y uint32) {
+  // TODO: this shouldn't be linear
+  bound := geo.NewBoundFromMapTile(p.X, p.Y, p.Z)
+  nw := bound.NorthWest()
+  se := bound.SouthEast()
+  x = uint32(((ll.Lng.Degrees() - nw[0]) * 4096.0) / (se[0] - nw[0]))
+  y = uint32(((ll.Lat.Degrees() - nw[1]) * 4096.0) / (se[1] - nw[1]))
+  return
+}
+
+func (p *Painter) AddPoint(ll s2.LatLng) {
+  x, y := p.project(ll)
+  log.Printf("Tree: %s -> %d,%d", ll, x, y)
+  feature := &vector_tile.Tile_Feature{
+    Type: vector_tile.Tile_POINT.Enum(),
+    Geometry: []uint32{
+      (1 & 0x7) | (1 << 3), // MoveTo: id 1, count 1
+      (x << 1) ^ (x >> 31), // zigzag encoded
+      (y << 1) ^ (y >> 31),
+    },
+  }
+  p.Tile.Layers[0].Features = append(p.Tile.Layers[0].Features, feature)
+}
+
+func (h *TileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+  log.Printf("Tile: %s", r.URL.Path)
+  var x, y, z uint64
+  n, err := fmt.Sscanf(r.URL.Path, "/tile/%d/%d/%d.mvt", &z, &x, &y)
+  if err != nil {
+    log.Fatal(err)
+  }
+  if n != 3 {
+    http.Error(w, "Bad tile path", http.StatusInternalServerError)
+    return
+  }
+  region := TileRegion(x, y, z)
+  log.Printf("Region: %s", region)
+  trees := FindTrees(h.Trees, region)
+  painter := &Painter{}
+  painter.Init(x, y, z)
+  for _, tree := range trees {
+    painter.AddPoint(tree.CellID.LatLng())
+  }
+  data, err := proto.Marshal(painter.Tile)
   if err != nil {
     log.Printf("Error: %v", err)
     http.Error(w, "Bad tile encoding", http.StatusInternalServerError)
@@ -84,15 +111,9 @@ type Tree struct {
   Spread float32 // Meters
 }
 
-type TreeByCellID []Tree
-
-func (a TreeByCellID) Len() int           { return len(a) }
-func (a TreeByCellID) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a TreeByCellID) Less(i, j int) bool { return a[i].CellID < a[j].CellID }
-
-func LoadTrees(trees []Tree) error {
+func LoadTrees() ([]Tree, error) {
+  trees := []Tree{}
   err := camden.LoadCSVFromFile(TreesFilename, true, func (row []string) error {
-    fmt.Printf("Tree: %s,%s\n", row[camden.TreesLatitudeColumn], row[camden.TreesLongditudeColumn])
     lat, err := strconv.ParseFloat(row[camden.TreesLatitudeColumn], 64)
     if err != nil {
       return nil
@@ -109,15 +130,35 @@ func LoadTrees(trees []Tree) error {
     return nil
   })
   if err != nil {
-    return err
+    return nil, err
   }
   sort.Sort(TreeByCellID(trees))
-  return nil
+  return trees, nil
 }
 
+func FindTrees(trees []Tree, region s2.Region) []Tree {
+  found := []Tree{}
+  coverer := &s2.RegionCoverer{MaxLevel: 30, MaxCells: 5}
+  covering := coverer.Covering(region)
+  for _, id := range covering {
+    begin := sort.Search(len(trees), func(i int) bool {return trees[i].CellID >= id.ChildBegin()})
+    for i := begin; i < len(trees) && trees[i].CellID < id.ChildEnd(); i++ {
+      if region.ContainsCell(s2.CellFromCellID(trees[i].CellID)) {
+        found = append(found, trees[i])
+      }
+    }
+  }
+  return found
+}
+
+type TreeByCellID []Tree
+
+func (a TreeByCellID) Len() int           { return len(a) }
+func (a TreeByCellID) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a TreeByCellID) Less(i, j int) bool { return a[i].CellID < a[j].CellID }
+
 func main() {
-  trees := []Tree{}
-  err := LoadTrees(trees)
+  trees, err := LoadTrees()
   if err != nil {
     log.Fatal(err)
   }
@@ -127,7 +168,8 @@ func main() {
   http.HandleFunc("/output.geojson", func(w http.ResponseWriter, r *http.Request) {
     http.ServeFile(w, r, "html/output.geojson")
   })
-  http.HandleFunc("/tile/", ServeTile)
+  tileHandler := &TileHandler{Trees: trees}
+  http.Handle("/tile/", tileHandler)
   addr := "localhost:9000"
   server := http.Server{Addr: addr}
   log.Printf("Listening on %s", addr)
