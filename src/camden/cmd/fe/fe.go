@@ -39,6 +39,8 @@ type Painter struct {
   X, Y, Z uint64
 }
 
+const TileExtent = 12 // Implies 1 << 2, ie 4096, units per tile
+
 func (p *Painter) Init(x, y, z uint64) {
   p.X, p.Y, p.Z = x, y, z
   p.Tile = &vector_tile.Tile{
@@ -46,21 +48,16 @@ func (p *Painter) Init(x, y, z uint64) {
       &vector_tile.Tile_Layer{
         Name: proto.String("b"),
         Version: proto.Uint32(1),
-        Extent: proto.Uint32(4096),
+        Extent: proto.Uint32(1 << TileExtent),
         Features: []*vector_tile.Tile_Feature{},
       },
     },
   }
 }
 
-func (p *Painter) project(ll s2.LatLng) (x, y uint32) {
-  // TODO: this shouldn't be linear
-  bound := geo.NewBoundFromMapTile(p.X, p.Y, p.Z)
-  nw := bound.NorthWest()
-  se := bound.SouthEast()
-  x = uint32(((ll.Lng.Degrees() - nw[0]) * 4096.0) / (se[0] - nw[0]))
-  y = uint32(((ll.Lat.Degrees() - nw[1]) * 4096.0) / (se[1] - nw[1]))
-  return
+func (p *Painter) project(ll s2.LatLng) (uint32, uint32) {
+  x, y := geo.ScalarMercator.Project(ll.Lng.Degrees(), ll.Lat.Degrees(), p.Z + TileExtent)
+  return uint32(x - (p.X << TileExtent)), uint32(y - (p.Y << TileExtent))
 }
 
 func (p *Painter) AddPoint(ll s2.LatLng) {
