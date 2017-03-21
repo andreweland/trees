@@ -22,15 +22,25 @@ var div = d3.select('body').append('div')
   .attr('style', 'width: ' + WIDTH + 'px; height: ' + HEIGHT + 'px;');
 var map = L.map('map', options).setView([CENTER.lat, CENTER.lng], 16);
 L.tileLayer(MAPBOX_URL).addTo(map);
+metersToPixels = function(map, meters) {
+  centerLatLng = map.getCenter();
+  centerPoint = map.latLngToContainerPoint(centerLatLng);
+  deltaLatLng = map.containerPointToLatLng(L.point(centerPoint.x + 1, centerPoint.y));
+  metersPerPixel = centerLatLng.distanceTo(deltaLatLng);
+  return meters / metersPerPixel;
+}
+
 vectorTileOptions = {
   vectorTileLayerStyles: {
-    b: {
-      radius: 5,
-      stroke: true,
-      fill: false,
-      color: "#00ff00",
-      fillColor: "#00ff00",
-      fillOpacity: 1.0,
+    trees: function(properties, zoom) {
+      return {
+        radius: metersToPixels(map, properties.spread),
+        stroke: true,
+        fill: false,
+        color: "#00ff00",
+        fillColor: "#00ff00",
+        fillOpacity: 1.0,
+      }
     },
   },
 };

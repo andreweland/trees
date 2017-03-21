@@ -46,7 +46,8 @@ func (p *Painter) Init(x, y, z uint64) {
   p.Tile = &vector_tile.Tile{
     Layers: []*vector_tile.Tile_Layer{
       &vector_tile.Tile_Layer{
-        Name: proto.String("b"),
+        Name: proto.String("trees"),
+        Keys: []string{"spread"},
         Version: proto.Uint32(1),
         Extent: proto.Uint32(1 << TileExtent),
         Features: []*vector_tile.Tile_Feature{},
@@ -60,9 +61,11 @@ func (p *Painter) project(ll s2.LatLng) (uint32, uint32) {
   return uint32(x - (p.X << TileExtent)), uint32(y - (p.Y << TileExtent))
 }
 
-func (p *Painter) AddPoint(ll s2.LatLng) {
+func (p *Painter) AddTree(t *Tree) {
+  ll := t.CellID.LatLng()
   x, y := p.project(ll)
-  log.Printf("Tree: %s -> %d,%d", ll, x, y)
+  // Could optimise repeat values
+  p.Tile.Layers[0].Values = append(p.Tile.Layers[0].Values, &vector_tile.Tile_Value{FloatValue: proto.Float32(t.Spread)})
   feature := &vector_tile.Tile_Feature{
     Type: vector_tile.Tile_POINT.Enum(),
     Geometry: []uint32{
@@ -70,6 +73,7 @@ func (p *Painter) AddPoint(ll s2.LatLng) {
       (x << 1) ^ (x >> 31), // zigzag encoded
       (y << 1) ^ (y >> 31),
     },
+    Tags: []uint32{0, uint32(len(p.Tile.Layers[0].Values) - 1)},
   }
   p.Tile.Layers[0].Features = append(p.Tile.Layers[0].Features, feature)
 }
@@ -91,7 +95,7 @@ func (h *TileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
   painter := &Painter{}
   painter.Init(x, y, z)
   for _, tree := range trees {
-    painter.AddPoint(tree.CellID.LatLng())
+    painter.AddTree(&tree)
   }
   data, err := proto.Marshal(painter.Tile)
   if err != nil {
