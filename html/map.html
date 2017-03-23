@@ -55,39 +55,6 @@ vectorTileOptions = {
   },
 };
 L.vectorGrid.protobuf("/tile/{z}/{x}/{y}.mvt", vectorTileOptions).addTo(map);
-
-var degressPerMeter = 1.0 / L.CRS.Earth.distance(L.latLng(0, 0), L.latLng(0, 1));
-
-d3.json("output.geojson", function(error, geoJSON) {
-  L.geoJSON(geoJSON, {
-    pointToLayer: function(point, latLng) {
-      var group = L.layerGroup();
-      var l = Math.floor(Math.sqrt(point.properties.total));
-      var x = 0, y = 0;
-      for (i = 0; i < point.properties.total; i++) {
-        newLatLng = L.latLng(latLng.lat - (y * 15.0 * degressPerMeter), latLng.lng +  (x * 15.0 * degressPerMeter))
-        color = '#ff0000'
-        if (i < point.properties.newBuild) {
-          color = '#ffb000'
-        }
-        group.addLayer(L.circle(newLatLng, {
-          radius: 3,
-          stroke: true,
-          fill: true,
-          color: color,
-          fillColor: color,
-          fillOpacity: 1.0,
-        }))
-        x++
-        if (x > l) {
-          x = 0
-          y++
-        }
-      }
-      return group
-    },
-  }); //.addTo(map);
-});
 </script>
 </body>
 </html>

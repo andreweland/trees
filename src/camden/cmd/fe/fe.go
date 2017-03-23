@@ -68,40 +68,34 @@ func (p *Painter) Init(x, y, z uint64) {
   }
 }
 
-func (p *Painter) project(ll s2.LatLng) (uint32, uint32) {
-  x, y := geo.ScalarMercator.Project(ll.Lng.Degrees(), ll.Lat.Degrees(), p.Z + TileExtent)
-  return uint32(x - (p.X << TileExtent)), uint32(y - (p.Y << TileExtent))
-}
-
 func (p *Painter) AddTree(t *Tree) {
-  ll := t.CellID.LatLng()
-  x, y := p.project(ll)
   // Could optimise repeat values
   p.Trees.Values = append(p.Tile.Layers[0].Values, &vector_tile.Tile_Value{FloatValue: proto.Float32(t.Spread)})
-  feature := &vector_tile.Tile_Feature{
-    Type: vector_tile.Tile_POINT.Enum(),
-    Geometry: []uint32{
-      (1 & 0x7) | (1 << 3), // MoveTo: id 1, count 1
-      (x << 1) ^ (x >> 31), // zigzag encoded
-      (y << 1) ^ (y >> 31),
-    },
-    Tags: []uint32{0, uint32(len(p.Trees.Values) - 1)},
-  }
+  feature := p.point(t.CellID.LatLng())
+  feature.Tags = []uint32{0, uint32(len(p.Trees.Values) - 1)}
   p.Trees.Features = append(p.Trees.Features, feature)
 }
 
 func (p *Painter) AddEstate(e *Estate) {
-  ll := e.CellID.LatLng()
-  x, y := p.project(ll)
-  feature := &vector_tile.Tile_Feature{
-    Type: vector_tile.Tile_POINT.Enum(),
-    Geometry: []uint32{
-      (1 & 0x7) | (1 << 3), // MoveTo: id 1, count 1
-      (x << 1) ^ (x >> 31), // zigzag encoded
-      (y << 1) ^ (y >> 31),
-    },
-  }
+  feature := p.point(e.CellID.LatLng())
   p.Estates.Features = append(p.Estates.Features, feature)
+}
+
+func (p *Painter) point(ll s2.LatLng) *vector_tile.Tile_Feature {
+  x, y := p.project(ll)
+  return &vector_tile.Tile_Feature{
+      Type: vector_tile.Tile_POINT.Enum(),
+      Geometry: []uint32{
+        (1 & 0x7) | (1 << 3), // MoveTo: id 1, count 1
+        (x << 1) ^ (x >> 31), // zigzag encoded
+        (y << 1) ^ (y >> 31),
+      },
+    }
+}
+
+func (p *Painter) project(ll s2.LatLng) (uint32, uint32) {
+  x, y := geo.ScalarMercator.Project(ll.Lng.Degrees(), ll.Lat.Degrees(), p.Z + TileExtent)
+  return uint32(x - (p.X << TileExtent)), uint32(y - (p.Y << TileExtent))
 }
 
 func (h *TileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
