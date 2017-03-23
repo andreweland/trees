@@ -42,6 +42,16 @@ vectorTileOptions = {
         fillOpacity: 1.0,
       }
     },
+    estates: function(properties, zoom) {
+      return {
+        radius: 5,
+        stroke: true,
+        fill: false,
+        color: "#ff0000",
+        fillColor: "#ff0000",
+        fillOpacity: 1.0,
+      }
+    },
   },
 };
 L.vectorGrid.protobuf("/tile/{z}/{x}/{y}.mvt", vectorTileOptions).addTo(map);

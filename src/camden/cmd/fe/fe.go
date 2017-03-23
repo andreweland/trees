@@ -33,10 +33,13 @@ var tilePattern = regexp.MustCompile(`/tile/(\d+)/(\d+)/(\d+)\.mvt`)
 
 type TileHandler struct {
   Trees []Tree
+  Estates []Estate
 }
 
 type Painter struct {
   Tile *vector_tile.Tile
+  Trees *vector_tile.Tile_Layer
+  Estates *vector_tile.Tile_Layer
   X, Y, Z uint64
 }
 
@@ -44,15 +47,23 @@ const TileExtent = 12 // Implies 1 << 2, ie 4096, units per tile
 
 func (p *Painter) Init(x, y, z uint64) {
   p.X, p.Y, p.Z = x, y, z
+  p.Trees = &vector_tile.Tile_Layer{
+    Name: proto.String("trees"),
+    Keys: []string{"spread"},
+    Version: proto.Uint32(1),
+    Extent: proto.Uint32(1 << TileExtent),
+    Features: []*vector_tile.Tile_Feature{},
+  }
+  p.Estates = &vector_tile.Tile_Layer{
+    Name: proto.String("estates"),
+    Version: proto.Uint32(1),
+    Extent: proto.Uint32(1 << TileExtent),
+    Features: []*vector_tile.Tile_Feature{},
+  }
   p.Tile = &vector_tile.Tile{
     Layers: []*vector_tile.Tile_Layer{
-      &vector_tile.Tile_Layer{
-        Name: proto.String("trees"),
-        Keys: []string{"spread"},
-        Version: proto.Uint32(1),
-        Extent: proto.Uint32(1 << TileExtent),
-        Features: []*vector_tile.Tile_Feature{},
-      },
+      p.Trees,
+      p.Estates,
     },
   }
 }
@@ -66,7 +77,7 @@ func (p *Painter) AddTree(t *Tree) {
   ll := t.CellID.LatLng()
   x, y := p.project(ll)
   // Could optimise repeat values
-  p.Tile.Layers[0].Values = append(p.Tile.Layers[0].Values, &vector_tile.Tile_Value{FloatValue: proto.Float32(t.Spread)})
+  p.Trees.Values = append(p.Tile.Layers[0].Values, &vector_tile.Tile_Value{FloatValue: proto.Float32(t.Spread)})
   feature := &vector_tile.Tile_Feature{
     Type: vector_tile.Tile_POINT.Enum(),
     Geometry: []uint32{
@@ -74,9 +85,23 @@ func (p *Painter) AddTree(t *Tree) {
       (x << 1) ^ (x >> 31), // zigzag encoded
       (y << 1) ^ (y >> 31),
     },
-    Tags: []uint32{0, uint32(len(p.Tile.Layers[0].Values) - 1)},
+    Tags: []uint32{0, uint32(len(p.Trees.Values) - 1)},
   }
-  p.Tile.Layers[0].Features = append(p.Tile.Layers[0].Features, feature)
+  p.Trees.Features = append(p.Trees.Features, feature)
+}
+
+func (p *Painter) AddEstate(e *Estate) {
+  ll := e.CellID.LatLng()
+  x, y := p.project(ll)
+  feature := &vector_tile.Tile_Feature{
+    Type: vector_tile.Tile_POINT.Enum(),
+    Geometry: []uint32{
+      (1 & 0x7) | (1 << 3), // MoveTo: id 1, count 1
+      (x << 1) ^ (x >> 31), // zigzag encoded
+      (y << 1) ^ (y >> 31),
+    },
+  }
+  p.Estates.Features = append(p.Estates.Features, feature)
 }
 
 func (h *TileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -92,11 +117,15 @@ func (h *TileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
   }
   region := TileRegion(x, y, z)
   log.Printf("Region: %s", region)
-  trees := FindTrees(h.Trees, region)
   painter := &Painter{}
   painter.Init(x, y, z)
+  trees := FindTrees(h.Trees, region)
   for _, tree := range trees {
     painter.AddTree(&tree)
+  }
+  estates := FindEstates(h.Estates, region)
+  for _, estate := range estates {
+    painter.AddEstate(&estate)
   }
   data, err := proto.Marshal(painter.Tile)
   if err != nil {
@@ -138,6 +167,12 @@ func LoadTrees() ([]Tree, error) {
   return trees, nil
 }
 
+type TreeByCellID []Tree
+
+func (a TreeByCellID) Len() int           { return len(a) }
+func (a TreeByCellID) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a TreeByCellID) Less(i, j int) bool { return a[i].CellID < a[j].CellID }
+
 func FindTrees(trees []Tree, region s2.Region) []Tree {
   found := []Tree{}
   coverer := &s2.RegionCoverer{MaxLevel: 30, MaxCells: 5}
@@ -152,12 +187,6 @@ func FindTrees(trees []Tree, region s2.Region) []Tree {
   }
   return found
 }
-
-type TreeByCellID []Tree
-
-func (a TreeByCellID) Len() int           { return len(a) }
-func (a TreeByCellID) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a TreeByCellID) Less(i, j int) bool { return a[i].CellID < a[j].CellID }
 
 type Estate struct {
   Name string
@@ -207,7 +236,33 @@ func LoadHousing() ([]Estate, error) {
   for _, estate := range estatesByName {
     estates = append(estates, estate)
   }
+  sort.Sort(EstateByCellID(estates))
   return estates, nil
+}
+
+// TODO:
+// To factor this out we'd have to make the Load... methods return an interface
+// Or can we implement an operation interface like Sort()/Find()
+// By making a searchable interaface on top of []Estate and []Tree?
+type EstateByCellID []Estate
+
+func (a EstateByCellID) Len() int           { return len(a) }
+func (a EstateByCellID) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a EstateByCellID) Less(i, j int) bool { return a[i].CellID < a[j].CellID }
+
+func FindEstates(estates []Estate, region s2.Region) []Estate {
+  found := []Estate{}
+  coverer := &s2.RegionCoverer{MaxLevel: 30, MaxCells: 5}
+  covering := coverer.Covering(region)
+  for _, id := range covering {
+    begin := sort.Search(len(estates), func(i int) bool {return estates[i].CellID >= id.ChildBegin()})
+    for i := begin; i < len(estates) && estates[i].CellID < id.ChildEnd(); i++ {
+      if region.ContainsCell(s2.CellFromCellID(estates[i].CellID)) {
+        found = append(found, estates[i])
+      }
+    }
+  }
+  return found
 }
 
 func main() {
@@ -226,7 +281,7 @@ func main() {
   http.HandleFunc("/output.geojson", func(w http.ResponseWriter, r *http.Request) {
     http.ServeFile(w, r, "html/output.geojson")
   })
-  tileHandler := &TileHandler{Trees: trees}
+  tileHandler := &TileHandler{Trees: trees, Estates: estates}
   http.Handle("/tile/", tileHandler)
   addr := "localhost:9000"
   server := http.Server{Addr: addr}
