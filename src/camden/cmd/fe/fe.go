@@ -22,8 +22,8 @@ const (
 )
 
 func TileRegion(x, y, z uint64) s2.Region {
-  // Replace with all S2?
-  bound := geo.NewBoundFromMapTile(x, y, z)
+  // Add some padding to prevent features clipping at tile boundaries
+  bound := geo.NewBoundFromMapTile(x, y, z).GeoPad(100.0)
   nw := bound.NorthWest()
   se := bound.SouthEast()
   return s2.RectFromLatLng(s2.LatLngFromDegrees(nw[1], nw[0])).AddPoint(s2.LatLngFromDegrees(se[1], se[0]))
@@ -102,15 +102,15 @@ func (p *Painter) point(ll s2.LatLng) *vector_tile.Tile_Feature {
       Type: vector_tile.Tile_POINT.Enum(),
       Geometry: []uint32{
         (1 & 0x7) | (1 << 3), // MoveTo: id 1, count 1
-        (x << 1) ^ (x >> 31), // zigzag encoded
-        (y << 1) ^ (y >> 31),
+        uint32(x << 1) ^ uint32(x >> 31), // zigzag encoded
+        uint32(y << 1) ^ uint32(y >> 31),
       },
     }
 }
 
-func (p *Painter) project(ll s2.LatLng) (uint32, uint32) {
+func (p *Painter) project(ll s2.LatLng) (int32, int32) {
   x, y := geo.ScalarMercator.Project(ll.Lng.Degrees(), ll.Lat.Degrees(), p.Z + TileExtent)
-  return uint32(x - (p.X << TileExtent)), uint32(y - (p.Y << TileExtent))
+  return int32(x - (p.X << TileExtent)), int32(y - (p.Y << TileExtent))
 }
 
 func (h *TileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
