@@ -41,15 +41,18 @@ type Painter struct {
   Trees *vector_tile.Tile_Layer
   Estates *vector_tile.Tile_Layer
   X, Y, Z uint64
+
+  TreeNames map[string]uint32
 }
 
 const TileExtent = 12 // Implies 1 << 2, ie 4096, units per tile
 
 func (p *Painter) Init(x, y, z uint64) {
   p.X, p.Y, p.Z = x, y, z
+  p.TreeNames = map[string]uint32{}
   p.Trees = &vector_tile.Tile_Layer{
     Name: proto.String("trees"),
-    Keys: []string{"spread"},
+    Keys: []string{"name", "spread", "height"},
     Version: proto.Uint32(1),
     Extent: proto.Uint32(1 << TileExtent),
     Features: []*vector_tile.Tile_Feature{},
@@ -71,9 +74,18 @@ func (p *Painter) Init(x, y, z uint64) {
 
 func (p *Painter) AddTree(t *Tree) {
   // Could optimise repeat values
-  p.Trees.Values = append(p.Trees.Values, &vector_tile.Tile_Value{FloatValue: proto.Float32(t.Spread)})
   feature := p.point(t.CellID.LatLng())
-  feature.Tags = []uint32{0, uint32(len(p.Trees.Values) - 1)}
+  p.Trees.Values = append(p.Trees.Values, &vector_tile.Tile_Value{FloatValue: proto.Float32(t.Spread)})
+  feature.Tags = []uint32{1, uint32(len(p.Trees.Values) - 1)}
+  p.Trees.Values = append(p.Trees.Values, &vector_tile.Tile_Value{FloatValue: proto.Float32(t.Height)})
+  feature.Tags = append(feature.Tags, 2, uint32(len(p.Trees.Values) - 1))
+  nameID, ok := p.TreeNames[t.Name]
+  if !ok {
+    p.Trees.Values = append(p.Trees.Values, &vector_tile.Tile_Value{StringValue: proto.String(t.Name)})
+    nameID = uint32(len(p.Trees.Values) - 1)
+    p.TreeNames[t.Name] = nameID
+  }
+  feature.Tags = append(feature.Tags, 0, nameID)
   p.Trees.Features = append(p.Trees.Features, feature)
 }
 
@@ -148,7 +160,9 @@ func (h *TileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 type Tree struct {
   CellID s2.CellID
+  Name string
   Spread float32 // Meters
+  Height float32 // Meters
 }
 
 func LoadTrees() ([]Tree, error) {
@@ -166,7 +180,13 @@ func LoadTrees() ([]Tree, error) {
     if err != nil {
       return nil
     }
-    trees = append(trees, Tree{s2.CellIDFromLatLng(s2.LatLngFromDegrees(lat, lng)), float32(spread)})
+    height, _ := strconv.ParseFloat(row[camden.TreesHeightColumn], 32)
+    trees = append(trees, Tree{
+      CellID: s2.CellIDFromLatLng(s2.LatLngFromDegrees(lat, lng)),
+      Name: row[camden.TreesCommonNameColumn],
+      Spread: float32(spread),
+      Height: float32(height),
+    })
     return nil
   })
   if err != nil {

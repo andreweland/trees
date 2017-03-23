@@ -22,6 +22,8 @@ const (
   PlanningAddressColumn = 2
   PlanningDescriptionColumn = 3
 
+  TreesCommonNameColumn = 2
+  TreesHeightColumn = 3
   TreesSpreadColumn = 4
   TreesLongditudeColumn = 14
   TreesLatitudeColumn = 15

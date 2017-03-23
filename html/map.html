@@ -7,6 +7,11 @@
 <script src="https://d3js.org/d3-color.v1.min.js"></script>
 <script src="https://d3js.org/d3-interpolate.v1.min.js"></script>
 <script src="https://d3js.org/d3-scale-chromatic.v1.min.js"></script>
+<style type="text/css">
+.tree-name {
+  font-weight: bold
+}
+</style>
 </head>
 <body>
 <script>
@@ -33,16 +38,26 @@ metersToPixels = function(map, meters) {
   return meters / metersPerPixel;
 }
 
+treeColors = {
+  "London plane": "#84903A",
+  "False Acacia": "#B1C061",
+  "Cherry": "#FFBDD4",
+  "Cherry - Rosebud": "#FFBDD4",
+  "Cherry - Wild, Gean": "#FFBDD4",
+}
+
 vectorTileOptions = {
+  interactive: true,
   vectorTileLayerStyles: {
     trees: function(properties, zoom) {
+      color = treeColors[properties.name] || "#41ab5d"
       return {
         radius: metersToPixels(map, properties.spread),
         stroke: true,
         weight: 1,
         fill: true,
-        color: "#41ab5d",
-        fillColor: "#41ab5d",
+        color: color,
+        fillColor: color,
         fillOpacity: 0.5,
       }
     },
@@ -74,7 +89,35 @@ vectorTileOptions = {
     },
   },
 };
-L.vectorGrid.protobuf("/tile/{z}/{x}/{y}.mvt", vectorTileOptions).addTo(map);
+layer = L.vectorGrid.protobuf("/tile/{z}/{x}/{y}.mvt", vectorTileOptions)
+var highlight
+layer.on("mouseover", function(e) {
+  console.log(e);
+  if (!e.layer.properties.spread) {
+    return
+  }
+  if (highlight) {
+    highlight.removeFrom(map)
+  }
+  msg = e.layer.properties.name
+  if (e.layer.properties.height) {
+    msg = e.layer.properties.height + "m " + msg
+  }
+  highlight = L.marker(e.latlng, {icon: L.divIcon({
+    html: msg,
+    className: 'tree-name',
+    iconSize: [200, 50],
+    iconAnchor: [-15, 0],
+  })})
+  highlight.addTo(map);
+  L.DomEvent.stop(e);
+})
+layer.on("mouseout", function(e) {
+  if (highlight) {
+    highlight.removeFrom(map)
+  }
+})
+layer.addTo(map);
 </script>
 </body>
 </html>
