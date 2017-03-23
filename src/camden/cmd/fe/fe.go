@@ -18,11 +18,11 @@ import (
 const (
   TreesFilename = "data/trees/Trees_In_Camden.csv"
   HousingStockFilename = "data/council-housing/Camden_residential_housing_stock_excluding_leasehold_properties.csv"
+  HousingBidFilename = "data/council-housing/Choice_Based_Lettings_Bids.csv"
 )
 
 func TileRegion(x, y, z uint64) s2.Region {
   // Replace with all S2?
-  // Unconvinced this is the right call
   bound := geo.NewBoundFromMapTile(x, y, z)
   nw := bound.NorthWest()
   se := bound.SouthEast()
@@ -56,6 +56,7 @@ func (p *Painter) Init(x, y, z uint64) {
   }
   p.Estates = &vector_tile.Tile_Layer{
     Name: proto.String("estates"),
+    Keys: []string{"bedrooms", "points1", "points2", "points3", "points4"},
     Version: proto.Uint32(1),
     Extent: proto.Uint32(1 << TileExtent),
     Features: []*vector_tile.Tile_Feature{},
@@ -70,7 +71,7 @@ func (p *Painter) Init(x, y, z uint64) {
 
 func (p *Painter) AddTree(t *Tree) {
   // Could optimise repeat values
-  p.Trees.Values = append(p.Tile.Layers[0].Values, &vector_tile.Tile_Value{FloatValue: proto.Float32(t.Spread)})
+  p.Trees.Values = append(p.Trees.Values, &vector_tile.Tile_Value{FloatValue: proto.Float32(t.Spread)})
   feature := p.point(t.CellID.LatLng())
   feature.Tags = []uint32{0, uint32(len(p.Trees.Values) - 1)}
   p.Trees.Features = append(p.Trees.Features, feature)
@@ -78,6 +79,20 @@ func (p *Painter) AddTree(t *Tree) {
 
 func (p *Painter) AddEstate(e *Estate) {
   feature := p.point(e.CellID.LatLng())
+  bedrooms := 0
+  for i := range e.BedroomCounts {
+    bedrooms += i * e.BedroomCounts[i]
+  }
+  p.Estates.Values = append(p.Estates.Values, &vector_tile.Tile_Value{IntValue: proto.Int64(int64(bedrooms))})
+  feature.Tags = []uint32{0, uint32(len(p.Estates.Values) - 1)}
+  for i := 1; i < 5; i++ {
+    points := int64(e.MedianMaxMids[i])
+    if points == 0 {
+      continue
+    }
+    p.Estates.Values = append(p.Estates.Values, &vector_tile.Tile_Value{IntValue: proto.Int64(points)})
+    feature.Tags = append(feature.Tags, uint32(i), uint32(len(p.Estates.Values) - 1))
+  }
   p.Estates.Features = append(p.Estates.Features, feature)
 }
 
@@ -182,16 +197,29 @@ func FindTrees(trees []Tree, region s2.Region) []Tree {
   return found
 }
 
+type Bid struct {
+  MaxPoints int
+}
+
+type BidByMaxPoints []Bid
+
+func (a BidByMaxPoints) Len() int           { return len(a) }
+func (a BidByMaxPoints) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a BidByMaxPoints) Less(i, j int) bool { return a[i].MaxPoints < a[j].MaxPoints }
+
 type Estate struct {
   Name string
   CellID s2.CellID
   BedroomCounts []int
+  MedianMaxMids []int
+  Bids [][]Bid
 }
 
 const MaxBedrooms = 10
 
 func LoadHousing() ([]Estate, error) {
-  estatesByName := map[string]Estate{}
+  estatesByName := map[string]*Estate{}
+  estatesByReference := map[string]*Estate{}
   err := camden.LoadCSVFromFile(HousingStockFilename, true, func (row []string) error {
     estateName := row[camden.HousingStockEstateColumn]
     if estateName == "" {
@@ -211,13 +239,19 @@ func LoadHousing() ([]Estate, error) {
     }
     estate, ok := estatesByName[estateName]
     if !ok {
-      estate = Estate{
+      estate = &Estate{
         Name: estateName,
         CellID: s2.CellIDFromLatLng(s2.LatLngFromDegrees(lat, lng)),
         BedroomCounts: make([]int, MaxBedrooms, MaxBedrooms),
+        MedianMaxMids: make([]int, MaxBedrooms, MaxBedrooms),
+        Bids: make([][]Bid, MaxBedrooms, MaxBedrooms),
+      }
+      for i, _ := range estate.Bids {
+        estate.Bids[i] = make([]Bid, 0)
       }
       estatesByName[estateName] = estate
     }
+    estatesByReference[row[camden.HousingStockPropertyReferenceColumn]] = estate
     if bedrooms < len(estate.BedroomCounts) {
       estate.BedroomCounts[bedrooms]++
     }
@@ -226,11 +260,41 @@ func LoadHousing() ([]Estate, error) {
   if err != nil {
     return nil, err
   }
+
+  bidCount := 0
+  matchedBidCount := 0
+  err = camden.LoadCSVFromFile(HousingBidFilename, true, func (row []string) error {
+    estate, ok := estatesByReference[row[camden.HousingBidPropertyReferenceColumn]]
+    bidCount++
+    if ok {
+      matchedBidCount++
+      bedrooms, err := strconv.Atoi(row[camden.HousingBidBedroomCountColumn])
+      if err != nil {
+        return nil
+      }
+      maxPoints, err := strconv.Atoi(row[camden.HousingBidMaxPointsColumn])
+      if err != nil {
+        return nil
+      }
+      estate.Bids[bedrooms] = append(estate.Bids[bedrooms], Bid{MaxPoints: maxPoints})
+    }
+    return nil
+  })
+  if err != nil {
+    return nil, err
+  }
   estates := make([]Estate, 0, len(estatesByName))
   for _, estate := range estatesByName {
-    estates = append(estates, estate)
+    for i := range estate.MedianMaxMids {
+      if len(estate.Bids[i]) > 0 {
+        sort.Sort(BidByMaxPoints(estate.Bids[i]))
+        estate.MedianMaxMids[i] = estate.Bids[i][len(estate.Bids[i]) / 2].MaxPoints
+      }
+    }
+    estates = append(estates, *estate)
   }
   sort.Sort(EstateByCellID(estates))
+  log.Printf("%d bids, %d matched", bidCount, matchedBidCount)
   return estates, nil
 }
 

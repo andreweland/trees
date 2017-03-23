@@ -4,6 +4,9 @@
 <script src="https://unpkg.com/leaflet@1.0.3/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.vectorgrid@1.2.0"></script>
 <script src="https://d3js.org/d3.v4.min.js"></script>
+<script src="https://d3js.org/d3-color.v1.min.js"></script>
+<script src="https://d3js.org/d3-interpolate.v1.min.js"></script>
+<script src="https://d3js.org/d3-scale-chromatic.v1.min.js"></script>
 </head>
 <body>
 <script>
@@ -36,20 +39,37 @@ vectorTileOptions = {
       return {
         radius: metersToPixels(map, properties.spread),
         stroke: true,
-        fill: false,
-        color: "#00ff00",
-        fillColor: "#00ff00",
-        fillOpacity: 1.0,
+        weight: 1,
+        fill: true,
+        color: "#41ab5d",
+        fillColor: "#41ab5d",
+        fillOpacity: 0.5,
       }
     },
     estates: function(properties, zoom) {
-      return {
-        radius: 5,
-        stroke: true,
-        fill: false,
-        color: "#ff0000",
-        fillColor: "#ff0000",
-        fillOpacity: 1.0,
+      points = properties.points2 || 0.0
+      radius = Math.sqrt(properties.bedrooms)
+      if (points > 0.0) {
+        // See https://runkit.com/npm/d3-scale-chromatic
+        color = d3.interpolateYlOrRd((points - 500.0)/500.0);
+        return {
+          radius: radius,
+          stroke: true,
+          weight: 1,
+          fill: true,
+          color: color,
+          fillColor: color,
+          fillOpacity: 1.0,
+        }
+      } else {
+        return {
+          radius: radius,
+          stroke: true,
+          fill: false,
+          color: "#f7f7f7",
+          fillColor: "#f7f7f7",
+          fillOpacity: 1.0,
+        }
       }
     },
   },

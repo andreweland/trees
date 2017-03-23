@@ -26,10 +26,15 @@ const (
   TreesLongditudeColumn = 14
   TreesLatitudeColumn = 15
 
+  HousingStockPropertyReferenceColumn = 0
   HousingStockBedroomCountColumn = 3
   HousingStockEstateColumn = 7
   HousingStockLongditudeColumn = 11
   HousingStockLatitudeColumn = 12
+
+  HousingBidPropertyReferenceColumn = 1
+  HousingBidBedroomCountColumn = 5
+  HousingBidMaxPointsColumn = 8
 
   CamdenDistrictCode = "E09000007"
 )
