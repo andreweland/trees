@@ -17,6 +17,7 @@ import (
 
 const (
   TreesFilename = "data/trees/Trees_In_Camden.csv"
+  HousingStockFilename = "data/council-housing/Camden_residential_housing_stock_excluding_leasehold_properties.csv"
 )
 
 func TileRegion(x, y, z uint64) s2.Region {
@@ -158,11 +159,67 @@ func (a TreeByCellID) Len() int           { return len(a) }
 func (a TreeByCellID) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a TreeByCellID) Less(i, j int) bool { return a[i].CellID < a[j].CellID }
 
+type Estate struct {
+  Name string
+  CellID s2.CellID
+  BedroomCounts []int
+}
+
+const MaxBedrooms = 10
+
+func LoadHousing() ([]Estate, error) {
+  estatesByName := map[string]Estate{}
+  err := camden.LoadCSVFromFile(HousingStockFilename, true, func (row []string) error {
+    estateName := row[camden.HousingStockEstateColumn]
+    if estateName == "" {
+      return nil
+    }
+    lat, err := strconv.ParseFloat(row[camden.HousingStockLatitudeColumn], 64)
+    if err != nil {
+      return nil
+    }
+    lng, err := strconv.ParseFloat(row[camden.HousingStockLongditudeColumn], 64)
+    if err != nil {
+      return nil
+    }
+    bedrooms, err := strconv.Atoi(row[camden.HousingStockBedroomCountColumn])
+    if err != nil {
+      return nil
+    }
+    estate, ok := estatesByName[estateName]
+    if !ok {
+      estate = Estate{
+        Name: estateName,
+        CellID: s2.CellIDFromLatLng(s2.LatLngFromDegrees(lat, lng)),
+        BedroomCounts: make([]int, MaxBedrooms, MaxBedrooms),
+      }
+      estatesByName[estateName] = estate
+    }
+    if bedrooms < len(estate.BedroomCounts) {
+      estate.BedroomCounts[bedrooms]++
+    }
+    return nil
+  })
+  if err != nil {
+    return nil, err
+  }
+  estates := make([]Estate, 0, len(estatesByName))
+  for _, estate := range estatesByName {
+    estates = append(estates, estate)
+  }
+  return estates, nil
+}
+
 func main() {
   trees, err := LoadTrees()
   if err != nil {
     log.Fatal(err)
   }
+  estates, err := LoadHousing()
+  if err != nil {
+    log.Fatal(err)
+  }
+  log.Printf("%d trees, %d estates", len(trees), len(estates))
   http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
     http.ServeFile(w, r, "html/map.html")
   })
