@@ -11,6 +11,20 @@ import (
 	"github.com/paulmach/go.geo"
 )
 
+const tileExtent = 12 // Implies 1 << 12, ie 4096, units per tile
+const tileNameTag = 0
+const tileSpreadTag = 1
+const tileHeightTag = 2
+
+var tileKeys []string
+
+func init() {
+	tileKeys = make([]string, 3, 3)
+	tileKeys[tileNameTag] = "name"
+	tileKeys[tileSpreadTag] = "spread"
+	tileKeys[tileHeightTag] = "height"
+}
+
 type Painter struct {
 	Tile    *vector_tile.Tile
 	Layer   *vector_tile.Tile_Layer
@@ -19,16 +33,14 @@ type Painter struct {
 	Names map[string]uint32
 }
 
-const TileExtent = 12 // Implies 1 << 12, ie 4096, units per tile
-
 func (p *Painter) Init(x, y, z uint64) {
 	p.X, p.Y, p.Z = x, y, z
 	p.Names = map[string]uint32{}
 	p.Layer = &vector_tile.Tile_Layer{
 		Name:     proto.String("trees"),
-		Keys:     []string{"name", "spread", "height"},
+		Keys:     tileKeys,
 		Version:  proto.Uint32(1),
-		Extent:   proto.Uint32(1 << TileExtent),
+		Extent:   proto.Uint32(1 << tileExtent),
 		Features: []*vector_tile.Tile_Feature{},
 	}
 	p.Tile = &vector_tile.Tile{
@@ -38,12 +50,10 @@ func (p *Painter) Init(x, y, z uint64) {
 	}
 }
 
-func (p *Painter) AddTree(t *Tree) {
+func (p *Painter) Paint(t *Tree) {
 	feature := p.point(t.Location.LatLng())
-	p.Layer.Values = append(p.Layer.Values, &vector_tile.Tile_Value{FloatValue: proto.Float32(t.Spread)})
-	feature.Tags = []uint32{1, uint32(len(p.Layer.Values) - 1)}
-	p.Layer.Values = append(p.Layer.Values, &vector_tile.Tile_Value{FloatValue: proto.Float32(t.Height)})
-	feature.Tags = append(feature.Tags, 2, uint32(len(p.Layer.Values)-1))
+	p.addProperty(feature, tileSpreadTag, t.Spread)
+	p.addProperty(feature, tileHeightTag, t.Height)
 	nameID, ok := p.Names[t.Name]
 	if !ok {
 		p.Layer.Values = append(p.Layer.Values, &vector_tile.Tile_Value{StringValue: proto.String(t.Name)})
@@ -52,6 +62,22 @@ func (p *Painter) AddTree(t *Tree) {
 	}
 	feature.Tags = append(feature.Tags, 0, nameID)
 	p.Layer.Features = append(p.Layer.Features, feature)
+}
+
+func (p *Painter) addProperty(feature *vector_tile.Tile_Feature, tagID uint32, value interface{}) {
+	p.Layer.Values = append(p.Layer.Values, tileValue(value))
+	feature.Tags = append(feature.Tags, tagID, uint32(len(p.Layer.Values)))
+}
+
+func tileValue(value interface{}) *vector_tile.Tile_Value {
+	switch value.(type) {
+	case float32:
+		return &vector_tile.Tile_Value{FloatValue: proto.Float32(value.(float32))}
+	case string:
+		return &vector_tile.Tile_Value{StringValue: proto.String(value.(string))}
+	default:
+		panic("Can't encode tile value")
+	}
 }
 
 func (p *Painter) point(ll s2.LatLng) *vector_tile.Tile_Feature {
@@ -67,8 +93,8 @@ func (p *Painter) point(ll s2.LatLng) *vector_tile.Tile_Feature {
 }
 
 func (p *Painter) project(ll s2.LatLng) (int32, int32) {
-	x, y := geo.ScalarMercator.Project(ll.Lng.Degrees(), ll.Lat.Degrees(), p.Z+TileExtent)
-	return int32(x - (p.X << TileExtent)), int32(y - (p.Y << TileExtent))
+	x, y := geo.ScalarMercator.Project(ll.Lng.Degrees(), ll.Lat.Degrees(), p.Z+tileExtent)
+	return int32(x - (p.X << tileExtent)), int32(y - (p.Y << tileExtent))
 }
 
 func TileRegion(x, y, z uint64) s2.Region {
@@ -98,7 +124,7 @@ func (h *TileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	painter.Init(x, y, z)
 	trees := FindTrees(h.Trees, region)
 	for _, tree := range trees {
-		painter.AddTree(&tree)
+		painter.Paint(&tree)
 	}
 	data, err := proto.Marshal(painter.Tile)
 	if err != nil {
