@@ -1,32 +1,69 @@
+<!DOCTYPE html>
 <html>
 <head>
+<title>Trees!</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.0.3/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.0.3/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.vectorgrid@1.2.0"></script>
-<script src="https://d3js.org/d3.v4.min.js"></script>
+<script src="https://unpkg.com/d3@4.7.4"></script>
 <style type="text/css">
 .tree-name {
   font-weight: bold
 }
+body {
+  padding: 0;
+  margin: 0;
+}
+html, body, #map {
+  height: 100%;
+  width: 100%;
+  z-index: 0;
+}
+#key {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  padding: 10px;
+  font-family: sans-serif;
+  z-index: 1;
+}
+#key > a {
+  text-decoration: none;
+  color: inherit;
+}
+#key > a:hover {
+  text-decoration: underline;
+}
+h1 {
+  margin-top: 5px;
+  margin-bottom: 5px;
+  margin-left: 0px;
+  margin-right: 0px;
+}
 </style>
 </head>
 <body>
+<div id="map"></div>
+<div id="key">
+<h1>Camden Trees</h1>
+Data from <a href="https://opendata.camden.gov.uk/Environment/Trees-In-Camden/csqp-kdss">Open Data Camden</a>
+</div>
 <script>
-var MAPBOX_URL = 'https://api.mapbox.com/styles/v1/mapbox/light-v9/tiles/256/{z}/{x}/{y}@2x?access_token=pk.eyJ1IjoiYW5kcmV3ZWxhbmQiLCJhIjoiWFQxTW5HdyJ9.nmZbHHvtnEQHP8iy9ibtQg';
-var WIDTH = 1000, HEIGHT = 1000;
-var CENTER = L.latLng(51.549180, -0.140962);
+var MAPBOX_TOKEN = 'pk.eyJ1IjoiYW5kcmV3ZWxhbmQiLCJhIjoiWFQxTW5HdyJ9.nmZbHHvtnEQHP8iy9ibtQg'
+var MAPBOX_URL = 'https://api.mapbox.com/styles/v1/mapbox/light-v9/tiles/256/{z}/{x}/{y}@2x?access_token=' + MAPBOX_TOKEN;
+var CENTER = L.latLng(51.546495, -0.141731);
 var options = {
   dragging: true,
-  touchZoom: false,
-  scrollWheelZoom: false,
-  zoomControl: true,
+  touchZoom: true,
+  scrollWheelZoom: true,
+  zoomControl: false,
   attributionControl: false
 };
-var div = d3.select('body').append('div')
-  .attr('id', 'map')
-  .attr('style', 'width: ' + WIDTH + 'px; height: ' + HEIGHT + 'px;');
 var map = L.map('map', options).setView([CENTER.lat, CENTER.lng], 16);
 L.tileLayer(MAPBOX_URL).addTo(map);
+L.control.zoom({position: 'bottomleft'}).addTo(map);
+var credits = L.control.attribution().addTo(map);
+credits.addAttribution('© <a href="https://www.mapbox.com/map-feedback/">Mapbox</a> © <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> <strong><a href="https://www.mapbox.com/map-feedback/" target="_blank">Improve this map</a></strong>');
 
 metersToPixels = function(map, meters) {
   centerLatLng = map.getCenter();
@@ -36,7 +73,7 @@ metersToPixels = function(map, meters) {
   return meters / metersPerPixel;
 }
 
-treeColors = {
+var treeColors = {
   'London plane': '#84903a',
   'False Acacia': '#b1c061',
   'Cherry': '#ffbdd4',
@@ -44,7 +81,7 @@ treeColors = {
   'Cherry - Wild, Gean': '#ffbdd4',
 }
 
-vectorTileOptions = {
+var vectorTileOptions = {
   interactive: true,
   vectorTileLayerStyles: {
     trees: function(properties, zoom) {
@@ -61,8 +98,9 @@ vectorTileOptions = {
     },
   },
 };
-layer = L.vectorGrid.protobuf('/tile/{z}/{x}/{y}.mvt', vectorTileOptions)
+
 var highlight
+var layer = L.vectorGrid.protobuf('/tile/{z}/{x}/{y}.mvt', vectorTileOptions)
 layer.on('mouseover', function(e) {
   console.log(e);
   if (!e.layer.properties.spread) {
