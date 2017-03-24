@@ -4,9 +4,6 @@
 <script src="https://unpkg.com/leaflet@1.0.3/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.vectorgrid@1.2.0"></script>
 <script src="https://d3js.org/d3.v4.min.js"></script>
-<script src="https://d3js.org/d3-color.v1.min.js"></script>
-<script src="https://d3js.org/d3-interpolate.v1.min.js"></script>
-<script src="https://d3js.org/d3-scale-chromatic.v1.min.js"></script>
 <style type="text/css">
 .tree-name {
   font-weight: bold
@@ -30,6 +27,7 @@ var div = d3.select('body').append('div')
   .attr('style', 'width: ' + WIDTH + 'px; height: ' + HEIGHT + 'px;');
 var map = L.map('map', options).setView([CENTER.lat, CENTER.lng], 16);
 L.tileLayer(MAPBOX_URL).addTo(map);
+
 metersToPixels = function(map, meters) {
   centerLatLng = map.getCenter();
   centerPoint = map.latLngToContainerPoint(centerLatLng);
@@ -39,18 +37,18 @@ metersToPixels = function(map, meters) {
 }
 
 treeColors = {
-  "London plane": "#84903A",
-  "False Acacia": "#B1C061",
-  "Cherry": "#FFBDD4",
-  "Cherry - Rosebud": "#FFBDD4",
-  "Cherry - Wild, Gean": "#FFBDD4",
+  'London plane': '#84903a',
+  'False Acacia': '#b1c061',
+  'Cherry': '#ffbdd4',
+  'Cherry - Rosebud': '#ffbdd4',
+  'Cherry - Wild, Gean': '#ffbdd4',
 }
 
 vectorTileOptions = {
   interactive: true,
   vectorTileLayerStyles: {
     trees: function(properties, zoom) {
-      color = treeColors[properties.name] || "#41ab5d"
+      color = treeColors[properties.name] || '#41ab5d'
       return {
         radius: metersToPixels(map, properties.spread),
         stroke: true,
@@ -61,37 +59,11 @@ vectorTileOptions = {
         fillOpacity: 0.5,
       }
     },
-    estates: function(properties, zoom) {
-      points = properties.points2 || 0.0
-      radius = Math.sqrt(properties.bedrooms)
-      if (points > 0.0) {
-        // See https://runkit.com/npm/d3-scale-chromatic
-        color = d3.interpolateYlOrRd((points - 500.0)/500.0);
-        return {
-          radius: radius,
-          stroke: true,
-          weight: 1,
-          fill: true,
-          color: color,
-          fillColor: color,
-          fillOpacity: 1.0,
-        }
-      } else {
-        return {
-          radius: radius,
-          stroke: true,
-          fill: false,
-          color: "#f7f7f7",
-          fillColor: "#f7f7f7",
-          fillOpacity: 1.0,
-        }
-      }
-    },
   },
 };
-layer = L.vectorGrid.protobuf("/tile/{z}/{x}/{y}.mvt", vectorTileOptions)
+layer = L.vectorGrid.protobuf('/tile/{z}/{x}/{y}.mvt', vectorTileOptions)
 var highlight
-layer.on("mouseover", function(e) {
+layer.on('mouseover', function(e) {
   console.log(e);
   if (!e.layer.properties.spread) {
     return
@@ -101,7 +73,7 @@ layer.on("mouseover", function(e) {
   }
   msg = e.layer.properties.name
   if (e.layer.properties.height) {
-    msg = e.layer.properties.height + "m " + msg
+    msg = e.layer.properties.height + 'm ' + msg
   }
   highlight = L.marker(e.latlng, {icon: L.divIcon({
     html: msg,
@@ -112,7 +84,7 @@ layer.on("mouseover", function(e) {
   highlight.addTo(map);
   L.DomEvent.stop(e);
 })
-layer.on("mouseout", function(e) {
+layer.on('mouseout', function(e) {
   if (highlight) {
     highlight.removeFrom(map)
   }
