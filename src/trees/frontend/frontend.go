@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"net/http"
 	"sort"
@@ -8,7 +9,10 @@ import (
 )
 
 func main() {
-	camdenTrees, err := trees.LoadCamdenTrees("data/trees.json")
+	data := flag.String("data", "data/trees.json", "Filename containing JSON tree data")
+	addr := flag.String("addr", "localhost:9000", "Host and port on which to serve HTTP")
+	flag.Parse()
+	camdenTrees, err := trees.LoadCamdenTrees(*data)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -18,8 +22,7 @@ func main() {
 		http.ServeFile(w, r, "html/map.html")
 	})
 	http.Handle("/tile/", &trees.TileHandler{Trees: camdenTrees})
-	addr := "localhost:9000"
-	server := http.Server{Addr: addr}
-	log.Printf("Listening on %s", addr)
+	server := http.Server{Addr: *addr}
+	log.Printf("Listening on %s", *addr)
 	log.Fatal(server.ListenAndServe())
 }
