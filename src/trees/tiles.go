@@ -3,6 +3,7 @@ package trees
 import (
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"trees/proto" // Imports as vector_tile
 
@@ -15,20 +16,23 @@ const tileExtent = 12 // Implies 1 << 12, ie 4096, units per tile
 const tileNameTag = 0
 const tileSpreadTag = 1
 const tileHeightTag = 2
+const tileRadiusTag = 3
 
 var tileKeys []string
 
 func init() {
-	tileKeys = make([]string, 3, 3)
+	tileKeys = make([]string, 4, 4)
 	tileKeys[tileNameTag] = "name"
 	tileKeys[tileSpreadTag] = "spread"
 	tileKeys[tileHeightTag] = "height"
+	tileKeys[tileRadiusTag] = "radius"
 }
 
 type Painter struct {
-	Tile    *vector_tile.Tile
-	Layer   *vector_tile.Tile_Layer
-	X, Y, Z uint64
+	Tile           *vector_tile.Tile
+	Layer          *vector_tile.Tile_Layer
+	X, Y, Z        uint64
+	MetersPerPixel float64
 
 	Names map[string]uint32
 }
@@ -48,25 +52,28 @@ func (p *Painter) Init(x, y, z uint64) {
 			p.Layer,
 		},
 	}
+	bound := geo.NewBoundFromMapTile(x, y, z)
+	p.MetersPerPixel = bound.GeoHeight() / 256.0
 }
 
 func (p *Painter) Paint(t *Tree) {
 	feature := p.point(t.Location.LatLng())
 	p.addProperty(feature, tileSpreadTag, t.Spread)
 	p.addProperty(feature, tileHeightTag, t.Height)
+	p.addProperty(feature, tileRadiusTag, float32(math.Ceil(float64(t.Spread)/p.MetersPerPixel)))
 	nameID, ok := p.Names[t.Name]
 	if !ok {
 		p.Layer.Values = append(p.Layer.Values, &vector_tile.Tile_Value{StringValue: proto.String(t.Name)})
 		nameID = uint32(len(p.Layer.Values) - 1)
 		p.Names[t.Name] = nameID
 	}
-	feature.Tags = append(feature.Tags, 0, nameID)
+	feature.Tags = append(feature.Tags, tileNameTag, nameID)
 	p.Layer.Features = append(p.Layer.Features, feature)
 }
 
 func (p *Painter) addProperty(feature *vector_tile.Tile_Feature, tagID uint32, value interface{}) {
 	p.Layer.Values = append(p.Layer.Values, tileValue(value))
-	feature.Tags = append(feature.Tags, tagID, uint32(len(p.Layer.Values)))
+	feature.Tags = append(feature.Tags, tagID, uint32(len(p.Layer.Values)-1))
 }
 
 func tileValue(value interface{}) *vector_tile.Tile_Value {

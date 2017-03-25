@@ -65,14 +65,6 @@ L.control.zoom({position: 'bottomleft'}).addTo(map);
 var credits = L.control.attribution().addTo(map);
 credits.addAttribution('© <a href="https://www.mapbox.com/map-feedback/">Mapbox</a> © <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> <strong><a href="https://www.mapbox.com/map-feedback/" target="_blank">Improve this map</a></strong>');
 
-metersToPixels = function(map, meters) {
-  centerLatLng = map.getCenter();
-  centerPoint = map.latLngToContainerPoint(centerLatLng);
-  deltaLatLng = map.containerPointToLatLng(L.point(centerPoint.x + 1, centerPoint.y));
-  metersPerPixel = centerLatLng.distanceTo(deltaLatLng);
-  return meters / metersPerPixel;
-}
-
 var treeColors = {
   'London plane': '#84903a',
   'False Acacia': '#b1c061',
@@ -84,10 +76,12 @@ var treeColors = {
 var vectorTileOptions = {
   interactive: true,
   vectorTileLayerStyles: {
+    // Need to convert meters to pixels directly from the zoom level. Should
+    // be easy because the zoom level implies the number of tiles.
     trees: function(properties, zoom) {
       color = treeColors[properties.name] || '#41ab5d'
       return {
-        radius: metersToPixels(map, properties.spread),
+        radius: properties.radius,
         stroke: true,
         weight: 1,
         fill: true,
@@ -102,7 +96,6 @@ var vectorTileOptions = {
 var highlight
 var layer = L.vectorGrid.protobuf('/tile/{z}/{x}/{y}.mvt', vectorTileOptions)
 layer.on('mouseover', function(e) {
-  console.log(e);
   if (!e.layer.properties.spread) {
     return
   }
