@@ -26,6 +26,9 @@ func main() {
 	http.Handle("/", handlers.LoggingHandler(os.Stdout, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, path.Join(*static, "map.html"))
 	})))
+	http.Handle("/favicon.ico", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, path.Join(*static, "favicon.png"))
+	}))
 	http.Handle("/tile/", handlers.LoggingHandler(os.Stdout, &trees.TileHandler{Trees: camdenTrees}))
 	server := http.Server{Addr: *addr}
 	log.Printf("Listening on %s", *addr)
