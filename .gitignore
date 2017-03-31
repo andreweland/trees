@@ -1,0 +1,5 @@
+bin/
+data/
+pkg/
+proto/
+src/trees/proto/
